@@ -1,0 +1,138 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  name         String
+  password     String
+  email        String   @unique
+  verifyEmail  Boolean  @default(false)
+  image        String?
+  createAt     DateTime @default(now())
+  lastEditAt   DateTime @default(now())
+  updateAt     DateTime @updatedAt
+  socketId     String?
+  isOnline     Boolean  @default(false)
+  lastOnlineAt DateTime @default(now())
+
+  conversationIds String[]       @db.ObjectId
+  conversation    Conversation[] @relation(fields: [conversationIds], references: [id])
+
+  seenMessageIds String[]  @db.ObjectId
+  seenMessages   Message[] @relation("Seen", fields: [seenMessageIds], references: [id])
+
+  messages Message[]
+
+  emailVerifyOTP  EmailVerifyOTP[]
+  roomParticipant RoomParticipant? @relation("roomParticipant")
+  roomHost        Room?            @relation("host")
+  pinMessage      Message[]        @relation("pinner")
+}
+
+model EmailVerifyOTP {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  otp       String
+  userId    String   @db.ObjectId
+  createdAt DateTime @default(now())
+  expiredAt DateTime
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Conversation {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  createdt      DateTime @default(now())
+  lastMessageAt DateTime @default(now())
+  isGroup       Boolean?
+  groupName     String?
+  groupImage    String?
+  emoji         String
+
+  numberOfPins Int @default(0)
+  pinLimit     Int @default(5)
+
+  messageIds String[]  @db.ObjectId
+  messages   Message[]
+
+  lastMessageId String?  @unique @db.ObjectId
+  lastMessage   Message? @relation("lastMessage", references: [id], fields: [lastMessageId], onUpdate: Cascade, onDelete: SetNull)
+
+  userIds String[] @db.ObjectId
+  users   User[]   @relation(fields: [userIds], references: [id])
+
+  room Room?
+}
+
+model Message {
+  id        String    @id @default(auto()) @map("_id") @db.ObjectId
+  body      String?
+  createdAt DateTime  @default(now())
+  recall    Boolean   @default(false)
+  type      String    @default("text")
+  status    String    @default("sent")
+  isTranfer Boolean?  @default(false)
+  isPin     Boolean   @default(false)
+  pinnedAt  DateTime?
+
+  fileAssetId   String?
+  fileURL       String?
+  fileSecureURL String?
+  fileName      String?
+  fileSize      Int?
+
+  responseMessageId String?   @db.ObjectId
+  responseMessage   Message?  @relation("response", fields: [responseMessageId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  responsedMessages Message[] @relation("response")
+
+  seenIds String[] @db.ObjectId
+  seen    User[]   @relation("Seen", fields: [seenIds], references: [id])
+
+  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  conversationId String?       @db.ObjectId
+
+  senderId String @db.ObjectId
+  sender   User   @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  pinnerId String? @db.ObjectId
+  pinner   User?   @relation("pinner", fields: [pinnerId], references: [id], onDelete: Cascade)
+
+  lastMessageConversation Conversation? @relation("lastMessage")
+}
+
+model Room {
+  id        String    @id @default(auto()) @map("_id") @db.ObjectId
+  type      String
+  isEnded   Boolean   @default(false)
+  startedAt DateTime  @default(now())
+  endedAt   DateTime?
+
+  hostId String @unique @db.ObjectId
+  host   User   @relation("host", fields: [hostId], references: [id])
+
+  conversationId String       @unique @db.ObjectId
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+
+  roomParticipants RoomParticipant[]
+}
+
+model RoomParticipant {
+  id       String @id @default(auto()) @map("_id") @db.ObjectId
+  socketId String @unique
+
+  userId String @unique @db.ObjectId
+  user   User   @relation("roomParticipant", fields: [userId], references: [id])
+
+  roomId String @db.ObjectId
+  room   Room   @relation(fields: [roomId], references: [id])
+}
