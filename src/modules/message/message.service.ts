@@ -376,6 +376,34 @@ export class MessageService {
     }
   }
 
+  async getOlderConversationMessages(
+    {
+      conversationId,
+      before,
+      to,
+    }: {
+      conversationId: string;
+      before: Date;
+      to?: Date;
+    },
+    res: Response,
+  ) {
+    try {
+      const olderMessages = await this.findOlderMessages(
+        conversationId,
+        before,
+        to,
+      );
+      return res.status(200).json({
+        messages: olderMessages,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        message: error.message ?? defaultErrorMessage,
+      });
+    }
+  }
+
   async checkConversationExists(userIds: string[], req, res: Response) {
     let currentUserId: string = req.user.id;
     try {
@@ -520,7 +548,7 @@ export class MessageService {
     return conversation;
   }
 
-  private async findConversationMessage(conversationId) {
+  private async findConversationMessage(conversationId: string) {
     const messages = await this.prisma.message.findMany({
       where: {
         conversationId: conversationId,
@@ -529,7 +557,36 @@ export class MessageService {
       orderBy: {
         createdAt: 'desc',
       },
-      // take: 20,
+      take: 20,
+    });
+    const sortMessages = messages.sort((a, b) => {
+      if (a.createdAt.getTime() === b.createdAt.getTime()) return 0;
+      if (a.createdAt.getTime() > b.createdAt.getTime()) return 1;
+      return -1;
+    });
+    return sortMessages;
+  }
+
+  private async findOlderMessages(
+    conversationId: string,
+    before: Date,
+    to?: Date,
+  ) {
+    const timeRange: { lt: Date; gte?: Date } = {
+      lt: before,
+    };
+    if (to) timeRange.gte = to;
+
+    const messages = await this.prisma.message.findMany({
+      where: {
+        conversationId: conversationId,
+        createdAt: timeRange,
+      },
+      select: MessageBasicSelect,
+      orderBy: {
+        createdAt: 'desc',
+      },
+      take: to ? undefined : 10,
     });
     const sortMessages = messages.sort((a, b) => {
       if (a.createdAt.getTime() === b.createdAt.getTime()) return 0;

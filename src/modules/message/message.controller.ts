@@ -89,6 +89,30 @@ export class MessageController {
   }
 
   @UseGuards(JwtGuard)
+  @Get('/getOlderMessages')
+  loadMoreMessage(
+    @Query()
+    {
+      id: conversationId,
+      before,
+      to,
+    }: { id: string; before: string; to: string },
+    @Res() res: Response,
+  ) {
+    const beforeDate = new Date(before);
+    const toDate = to ? new Date(to) : undefined;
+
+    return this.messageService.getOlderConversationMessages(
+      {
+        conversationId: conversationId,
+        before: beforeDate,
+        to: toDate,
+      },
+      res,
+    );
+  }
+
+  @UseGuards(JwtGuard)
   @Post('/checkConversationExists')
   checkConversationExists(@Body() body, @Req() req, @Res() res: Response) {
     return this.messageService.checkConversationExists(body.userIds, req, res);
@@ -96,7 +120,7 @@ export class MessageController {
 
   @UseGuards(JwtGuard)
   @Post('/recallMessage')
-  recallMessage(@Query("id") id: string,@Res() res: Response) {
+  recallMessage(@Query('id') id: string, @Res() res: Response) {
     return this.messageService.recallMessage(id, res);
   }
 }
