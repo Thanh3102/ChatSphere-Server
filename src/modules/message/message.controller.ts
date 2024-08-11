@@ -90,7 +90,7 @@ export class MessageController {
 
   @UseGuards(JwtGuard)
   @Get('/getOlderMessages')
-  loadMoreMessage(
+  getOlderMessages(
     @Query()
     {
       id: conversationId,

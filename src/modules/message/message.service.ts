@@ -191,7 +191,8 @@ export class MessageService {
               fileURL: response.url,
               fileSecureURL: response.secure_url,
               fileSize: response.bytes,
-              type: response.resource_type,
+              fileType: response.resource_type,
+              type: 'file',
             },
             include: {
               sender: true,

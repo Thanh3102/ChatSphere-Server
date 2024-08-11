@@ -85,6 +85,7 @@ model Message {
   isPin     Boolean   @default(false)
   pinnedAt  DateTime?
 
+  fileType      String?
   fileAssetId   String?
   fileURL       String?
   fileSecureURL String?

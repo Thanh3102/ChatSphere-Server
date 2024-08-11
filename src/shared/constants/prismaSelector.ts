@@ -23,6 +23,7 @@ export const MessageBasicSelect = {
   pinnedAt: true,
   recall: true,
   status: true,
+  fileType: true,
   fileName: true,
   fileURL: true,
   fileSecureURL: true,
