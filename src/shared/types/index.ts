@@ -29,6 +29,7 @@ export type CreateMessageDto = {
   conversationId: string;
   message: string;
   replyMessageId: string;
+  type: string;
 };
 
 export type SocketStartCallPayload = {

@@ -57,7 +57,7 @@ model Conversation {
   isGroup       Boolean?
   groupName     String?
   groupImage    String?
-  emoji         String
+  emoji         String   @default("1f44d")
 
   numberOfPins Int @default(0)
   pinLimit     Int @default(5)

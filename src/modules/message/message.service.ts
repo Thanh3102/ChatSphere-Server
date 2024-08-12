@@ -112,6 +112,7 @@ export class MessageService {
           const message = await p.message.create({
             data: {
               body: dto.message,
+              type: dto.type,
               conversationId: dto.conversationId,
               senderId: currentUserId,
               seenIds: [],
@@ -301,6 +302,7 @@ export class MessageService {
           isGroup: true,
           groupImage: true,
           groupName: true,
+          emoji: true,
           lastMessageAt: true,
           lastMessage: {
             select: MessageBasicSelect,

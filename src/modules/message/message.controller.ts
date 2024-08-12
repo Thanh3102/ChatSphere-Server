@@ -37,8 +37,6 @@ export class MessageController {
   @UseGuards(JwtGuard)
   @Post('/sendMessage')
   sendMessage(@Body() dto: CreateMessageDto, @Req() req, @Res() res: Response) {
-    console.log(dto);
-
     return this.messageService.createNewMessage(dto, req, res);
   }
 
