@@ -178,39 +178,34 @@ export class MessageService {
   ) {
     try {
       if (file) {
-        let newMessage;
         const response = await this.uploadFile(file, conversationId);
         const currentUserId = req.user.id;
-        await this.prisma.$transaction(async (p) => {
-          const message = await p.message.create({
-            data: {
-              conversationId: conversationId,
-              senderId: currentUserId,
-              seenIds: [],
-              fileAssetId: response.asset_id,
-              fileName: response.display_name,
-              fileURL: response.url,
-              fileSecureURL: response.secure_url,
-              fileSize: response.bytes,
-              fileType: response.resource_type,
-              type: 'file',
-            },
-            include: {
-              sender: true,
-            },
-          });
+        const message = await this.prisma.message.create({
+          data: {
+            conversationId: conversationId,
+            senderId: currentUserId,
+            seenIds: [],
+            fileAssetId: response.asset_id,
+            fileURL: response.url,
+            fileSecureURL: response.secure_url,
+            fileName: file.originalname,
+            fileSize: file.size,
+            fileType: file.mimetype,
+            type: 'file',
+          },
+          include: {
+            sender: true,
+          },
+        });
 
-          await p.conversation.update({
-            where: {
-              id: conversationId,
-            },
-            data: {
-              lastMessageAt: message.createdAt,
-              lastMessageId: message.id,
-            },
-          });
-
-          newMessage = message;
+        await this.prisma.conversation.update({
+          where: {
+            id: conversationId,
+          },
+          data: {
+            lastMessageAt: message.createdAt,
+            lastMessageId: message.id,
+          },
         });
 
         const { userIds } = await this.prisma.conversation.findUnique({
@@ -235,7 +230,7 @@ export class MessageService {
           if (isOnline) {
             this.messageGateway.server
               .to(socketId)
-              .emit(NEW_MESSAGE_EVENT, newMessage);
+              .emit(NEW_MESSAGE_EVENT, message);
             this.messageGateway.server
               .to(socketId)
               .emit(RELOAD_CONVERSATION_LIST_EVENT);
@@ -328,11 +323,15 @@ export class MessageService {
       const pinMessages = await this.findConversationPinMessage(
         conversation.id,
       );
+      const mediaFiles = await this.findConversationMediaFile({
+        conversationId: conversation.id,
+      });
 
       return res.status(200).json({
         ...conversation,
         messages: messages,
         pinMessages: pinMessages,
+        mediaFiles: mediaFiles,
       });
     } catch (error) {
       console.log(error);
@@ -404,6 +403,27 @@ export class MessageService {
       return res.status(500).json({
         message: error.message ?? defaultErrorMessage,
       });
+    }
+  }
+
+  async getConversationMediaFile(
+    payload: {
+      conversationId: string;
+      before?: Date;
+    },
+    res: Response,
+  ) {
+    const { conversationId, before } = payload;
+    try {
+      const files = await this.findConversationMediaFile({
+        conversationId: conversationId,
+        before: before,
+      });
+      return res.status(200).json(files);
+    } catch (error) {
+      return res
+        .status(200)
+        .json({ message: error.message ?? defaultErrorMessage });
     }
   }
 
@@ -691,5 +711,57 @@ export class MessageService {
           .emit(RELOAD_CONVERSATION_LIST_EVENT);
       }
     });
+  }
+
+  private async findConversationMediaFile(payload: {
+    conversationId: string;
+    before?: Date;
+  }) {
+    const { conversationId, before } = payload;
+    try {
+      const files = await this.prisma.message.findMany({
+        where: {
+          conversationId: conversationId,
+          OR: [
+            {
+              fileType: {
+                startsWith: 'image',
+              },
+            },
+            {
+              fileType: {
+                startsWith: 'video',
+              },
+            },
+          ],
+          fileName: {
+            not: {
+              endsWith: '.pdf',
+            },
+          },
+          createdAt: {
+            lt: before,
+          },
+        },
+        select: {
+          id: true,
+          fileAssetId: true,
+          fileName: true,
+          fileSecureURL: true,
+          fileSize: true,
+          fileType: true,
+          fileURL: true,
+          createdAt: true,
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+        take: 30,
+      });
+      return files;
+    } catch (error) {
+      console.log(error);
+      return [];
+    }
   }
 }

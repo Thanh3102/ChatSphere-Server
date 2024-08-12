@@ -1,6 +1,7 @@
 import { JwtGuard } from 'src/guards/jwt/jwt.guard';
 import { MessageService } from './message.service';
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -114,6 +115,18 @@ export class MessageController {
   @Post('/checkConversationExists')
   checkConversationExists(@Body() body, @Req() req, @Res() res: Response) {
     return this.messageService.checkConversationExists(body.userIds, req, res);
+  }
+
+  @UseGuards(JwtGuard)
+  @Get('/getConversationMediaFile')
+  getConversationMediaFile(@Query() { id, before }, @Res() res: Response) {
+    if (!id) {
+      throw new BadRequestException();
+    }
+    const payload: any = { conversationId: id };
+    if (before) payload.before = new Date(before);
+
+    return this.messageService.getConversationMediaFile(payload, res);
   }
 
   @UseGuards(JwtGuard)
