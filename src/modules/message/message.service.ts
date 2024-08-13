@@ -326,11 +326,16 @@ export class MessageService {
         conversationId: conversation.id,
       });
 
+      const files = await this.findConversationFile({
+        conversationId: conversation.id,
+      });
+
       return res.status(200).json({
         ...conversation,
         messages: messages,
         pinMessages: pinMessages,
         mediaFiles: mediaFiles,
+        files: files,
       });
     } catch (error) {
       console.log(error);
@@ -407,19 +412,33 @@ export class MessageService {
     }
   }
 
-  async getConversationMediaFile(
+  async getConversationFile(
     payload: {
       conversationId: string;
+      type: 'file' | 'mediaFile';
       before?: Date;
     },
     res: Response,
   ) {
-    const { conversationId, before } = payload;
+    const { conversationId, before, type } = payload;
     try {
-      const files = await this.findConversationMediaFile({
-        conversationId: conversationId,
-        before: before,
-      });
+      let files = [];
+      console.log('type', type);
+
+      if (type === 'mediaFile') {
+        files = await this.findConversationMediaFile({
+          conversationId: conversationId,
+          before: before,
+        });
+      }
+
+      if (type === 'file') {
+        files = await this.findConversationFile({
+          conversationId: conversationId,
+          before: before,
+        });
+      }
+
       return res.status(200).json(files);
     } catch (error) {
       return res
@@ -734,6 +753,50 @@ export class MessageService {
             {
               fileType: {
                 startsWith: 'video',
+              },
+            },
+          ],
+          createdAt: {
+            lt: before,
+          },
+        },
+        select: MessageBasicSelect,
+        orderBy: {
+          createdAt: 'desc',
+        },
+        take: 30,
+      });
+      return files;
+    } catch (error) {
+      console.log(error);
+      return [];
+    }
+  }
+
+  private async findConversationFile(payload: {
+    conversationId: string;
+    before?: Date;
+  }) {
+    const { conversationId, before } = payload;
+    try {
+      const files = await this.prisma.message.findMany({
+        where: {
+          conversationId: conversationId,
+          type: 'file',
+          recall: false,
+          AND: [
+            {
+              fileType: {
+                not: {
+                  startsWith: 'image',
+                },
+              },
+            },
+            {
+              fileType: {
+                not: {
+                  startsWith: 'video',
+                },
               },
             },
           ],

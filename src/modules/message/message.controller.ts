@@ -118,15 +118,15 @@ export class MessageController {
   }
 
   @UseGuards(JwtGuard)
-  @Get('/getConversationMediaFile')
-  getConversationMediaFile(@Query() { id, before }, @Res() res: Response) {
+  @Get('/getConversationFile')
+  getConversationFile(@Query() { id, before, type }, @Res() res: Response) {
     if (!id) {
       throw new BadRequestException();
     }
-    const payload: any = { conversationId: id };
+    const payload: any = { conversationId: id, type: type };
     if (before) payload.before = new Date(before);
 
-    return this.messageService.getConversationMediaFile(payload, res);
+    return this.messageService.getConversationFile(payload, res);
   }
 
   @UseGuards(JwtGuard)
