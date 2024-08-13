@@ -37,7 +37,6 @@ export class MessageService {
       await this.prisma.$transaction(async (p) => {
         const conversation = await p.conversation.create({
           data: {
-            emoji: '',
             isGroup: dto.members.length > 1 ? true : false,
             userIds: [currentUserId, ...dto.members.map((member) => member.id)],
           },
@@ -390,6 +389,8 @@ export class MessageService {
     },
     res: Response,
   ) {
+    console.log('>>> Before', before);
+
     try {
       const olderMessages = await this.findOlderMessages(
         conversationId,
@@ -722,6 +723,8 @@ export class MessageService {
       const files = await this.prisma.message.findMany({
         where: {
           conversationId: conversationId,
+          type: 'file',
+          recall: false,
           OR: [
             {
               fileType: {
@@ -734,29 +737,15 @@ export class MessageService {
               },
             },
           ],
-          fileName: {
-            not: {
-              endsWith: '.pdf',
-            },
-          },
           createdAt: {
             lt: before,
           },
         },
-        select: {
-          id: true,
-          fileAssetId: true,
-          fileName: true,
-          fileSecureURL: true,
-          fileSize: true,
-          fileType: true,
-          fileURL: true,
-          createdAt: true,
-        },
+        select: MessageBasicSelect,
         orderBy: {
           createdAt: 'desc',
         },
-        take: 30,
+        take: 10,
       });
       return files;
     } catch (error) {
