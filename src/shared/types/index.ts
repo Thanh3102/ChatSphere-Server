@@ -22,7 +22,6 @@ export type CreateConversationDto = {
     email: string;
     image: string;
   }[];
-  message: string;
 };
 
 export type CreateMessageDto = {

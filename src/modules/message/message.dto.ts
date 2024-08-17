@@ -7,8 +7,6 @@ export class CreateConversationDto {
     email: string;
     image: string;
   }[];
-  @IsNotEmpty()
-  message: string;
 }
 
 export class CreateMessageDto {
@@ -23,4 +21,10 @@ export class CreateMessageDto {
 export class UploadFileDto {
   @IsNotEmpty()
   conversationId: string;
+}
+
+export class CreateVoiceClipDto {
+  @IsNotEmpty()
+  conversationId: string;
+  duration: string;
 }

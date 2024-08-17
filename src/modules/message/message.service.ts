@@ -41,58 +41,10 @@ export class MessageService {
             userIds: [currentUserId, ...dto.members.map((member) => member.id)],
           },
         });
-
-        const lastMessage = await p.message.create({
-          data: {
-            body: dto.message,
-            conversationId: conversation.id,
-            seenIds: [],
-            senderId: currentUserId,
-          },
-        });
-
-        await p.conversation.update({
-          where: {
-            id: conversation.id,
-          },
-          data: {
-            lastMessageId: lastMessage.id,
-          },
-        });
-
         newConversation = conversation;
       });
-
-      const { userIds } = await this.prisma.conversation.findUnique({
-        where: {
-          id: newConversation.id,
-        },
-        select: {
-          userIds: true,
-        },
-      });
-
-      userIds.forEach(async (userId) => {
-        const { socketId, isOnline } = await this.prisma.user.findUnique({
-          where: {
-            id: userId,
-          },
-          select: {
-            socketId: true,
-            isOnline: true,
-          },
-        });
-
-        if (isOnline) {
-          this.messageGateway.server
-            .to(socketId)
-            .emit(RELOAD_CONVERSATION_LIST_EVENT);
-        }
-      });
-
       return res.status(200).json({
-        message: 'Đã gửi tin nhắn',
-        conversationId: newConversation.id,
+        id: newConversation.id,
       });
     } catch (error) {
       console.log(error);
@@ -236,6 +188,86 @@ export class MessageService {
           }
         });
       }
+      return res.status(200).json({ message: 'Upload file thành công' });
+    } catch (error) {
+      console.log(error);
+      return res
+        .status(500)
+        .json({ message: error.message ?? defaultErrorMessage });
+    }
+  }
+
+  async uploadVoiceClip(
+    {
+      file,
+      conversationId,
+      duration,
+    }: { file: Express.Multer.File; conversationId: string; duration: number },
+    req,
+    res: Response,
+  ) {
+    try {
+      if (!file) return res.status(400).json({ message: 'No audio file' });
+      const response = await this.uploadVoiceFile(file, conversationId);
+      const currentUserId = req.user.id;
+      const message = await this.prisma.message.create({
+        data: {
+          conversationId: conversationId,
+          senderId: currentUserId,
+          seenIds: [],
+          fileAssetId: response.asset_id,
+          fileURL: response.url,
+          fileSecureURL: response.secure_url,
+          fileName: file.originalname,
+          fileSize: file.size,
+          fileType: file.mimetype,
+          voiceDuration: duration,
+          type: 'voice',
+        },
+        include: {
+          sender: true,
+        },
+      });
+
+      await this.prisma.conversation.update({
+        where: {
+          id: conversationId,
+        },
+        data: {
+          lastMessageAt: message.createdAt,
+          lastMessageId: message.id,
+        },
+      });
+
+      const { userIds } = await this.prisma.conversation.findUnique({
+        where: {
+          id: conversationId,
+        },
+        select: {
+          userIds: true,
+        },
+      });
+
+      userIds.forEach(async (userId) => {
+        const { socketId, isOnline } = await this.prisma.user.findUnique({
+          where: {
+            id: userId,
+          },
+          select: {
+            socketId: true,
+            isOnline: true,
+          },
+        });
+        if (isOnline) {
+          this.messageGateway.server
+            .to(socketId)
+            .emit(NEW_MESSAGE_EVENT, message);
+          this.messageGateway.server
+            .to(socketId)
+            .emit(RELOAD_CONVERSATION_LIST_EVENT);
+        }
+      });
+
       return res.status(200).json({ message: 'Upload file thành công' });
     } catch (error) {
       console.log(error);
@@ -667,6 +699,36 @@ export class MessageService {
             resource_type: 'auto',
             public_id: file.originalname,
             folder: `/conversation/${conversationId}`,
+          },
+          (error, result) => {
+            if (error) {
+              reject(error.message);
+            } else {
+              resolve(result);
+            }
+          },
+        )
+        .end(file.buffer);
+    });
+
+    return uploadPromise;
+  }
+
+  private uploadVoiceFile(file: Express.Multer.File, conversationId: string) {
+    cloudinary.config({
+      cloud_name: process.env.CLOUDINARY_NAME,
+      api_key: process.env.CLOUDINARY_API_KEY,
+      api_secret: process.env.CLOUDINARY_API_SECRET,
+    });
+
+    const uploadPromise = new Promise<any>((resolve, reject) => {
+      const id = Date.now().toString();
+      cloudinary.uploader
+        .upload_stream(
+          {
+            resource_type: 'auto',
+            public_id: id,
+            folder: `/conversation/${conversationId}/voice/${id}`,
           },
           (error, result) => {
             if (error) {

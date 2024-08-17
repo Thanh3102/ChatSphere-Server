@@ -16,6 +16,7 @@ import {
 import {
   CreateConversationDto,
   CreateMessageDto,
+  CreateVoiceClipDto,
   UploadFileDto,
 } from './message.dto';
 import { Response } from 'express';
@@ -133,5 +134,24 @@ export class MessageController {
   @Post('/recallMessage')
   recallMessage(@Query('id') id: string, @Res() res: Response) {
     return this.messageService.recallMessage(id, res);
+  }
+
+  @UseGuards(JwtGuard)
+  @UseInterceptors(FileInterceptor('audio'))
+  @Post('/sendVoiceClip')
+  sendVoiceClip(
+    @UploadedFile() audioFile: Express.Multer.File,
+    @Body() { conversationId, duration }: CreateVoiceClipDto,
+    @Req() req,
+    @Res() res: Response,
+  ) {
+
+    const payload = {
+      conversationId: conversationId,
+      duration: parseInt(duration),
+      file: audioFile,
+    };
+
+    return this.messageService.uploadVoiceClip(payload, req, res);
   }
 }

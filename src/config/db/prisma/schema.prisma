@@ -92,6 +92,8 @@ model Message {
   fileName      String?
   fileSize      Int?
 
+  voiceDuration Int?
+
   responseMessageId String?   @db.ObjectId
   responseMessage   Message?  @relation("response", fields: [responseMessageId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   responsedMessages Message[] @relation("response")
