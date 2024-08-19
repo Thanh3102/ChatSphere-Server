@@ -6,6 +6,7 @@ import {
   Controller,
   Get,
   Post,
+  Put,
   Query,
   Req,
   Res,
@@ -145,7 +146,6 @@ export class MessageController {
     @Req() req,
     @Res() res: Response,
   ) {
-
     const payload = {
       conversationId: conversationId,
       duration: parseInt(duration),
@@ -153,5 +153,22 @@ export class MessageController {
     };
 
     return this.messageService.uploadVoiceClip(payload, req, res);
+  }
+
+  @UseGuards(JwtGuard)
+  @Put('/updateConversationSetting')
+  @UseInterceptors(FileInterceptor('image'))
+  updateConversationSetting(
+    @UploadedFile() image: Express.Multer.File,
+    @Body()
+    dto: { id: string; emoji: string; groupName: string },
+    @Req() req,
+    @Res() res: Response,
+  ) {
+    return this.messageService.updateConversationSetting(
+      { ...dto, groupImage: image },
+      req,
+      res,
+    );
   }
 }

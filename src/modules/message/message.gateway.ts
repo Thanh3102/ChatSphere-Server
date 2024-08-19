@@ -18,13 +18,9 @@ import {
   MessageBasicSelect,
   UserBasicSelect,
 } from 'src/shared/constants/prismaSelector';
-import {
-  NEW_MESSAGE_EVENT,
-  PIN_MESSAGE_EVENT,
-  UN_PIN_MESSAGE_EVENT,
-} from 'src/shared/constants/socketEventListener';
 import { MessageService } from './message.service';
 import { forwardRef, Inject } from '@nestjs/common';
+import { SOCKET_EVENT } from 'src/shared/enums';
 
 @WebSocketGateway(3002, {
   cors: {
@@ -272,44 +268,35 @@ export class MessageGateway
         return;
       } else {
         await this.prisma.$transaction(async (p) => {
-          // Update message pin status
           const pinMessage = await this.messageService.pinMessage(
             payload.messageId,
           );
 
-          // Increase number of pins in conversation
-          await this.messageService.increaseNumberOfPins(conversation.id, 1);
-
-          // Get socket user info
           const user = await this.userService.getUserBySocketId(client.id);
 
-          // Create notifition message
           const message = await p.message.create({
             data: {
-              body: 'pin',
               type: 'notification',
+              notificationAction: 'pin',
               conversationId: conversation.id,
               senderId: user.id,
             },
             select: MessageBasicSelect,
           });
 
-          // Emit event to online user
-          const onlineSockets = await p.user.findMany({
-            where: {
-              id: {
-                in: userIds,
-              },
-              isOnline: true,
-            },
-            select: {
-              socketId: true,
-            },
-          });
+          const users = await this.messageService.findConversationUser(
+            conversation.id,
+          );
 
-          for (const user of onlineSockets) {
-            this.server.to(user.socketId).emit(NEW_MESSAGE_EVENT, message);
-            this.server.to(user.socketId).emit(PIN_MESSAGE_EVENT, pinMessage);
+          for (const user of users) {
+            if (user.isOnline) {
+              this.server
+                .to(user.socketId)
+                .emit(SOCKET_EVENT.NEW_MESSAGE, message);
+              this.server
+                .to(user.socketId)
+                .emit(SOCKET_EVENT.PIN_MESSAGE, pinMessage);
+            }
           }
         });
       }
@@ -339,44 +326,35 @@ export class MessageGateway
       });
 
       await this.prisma.$transaction(async (p) => {
-        // Update message pin status
         const unPinMessage = await this.messageService.unPinMessage(
           payload.messageId,
         );
 
-        // Increase number of pins in conversation
-        await this.messageService.decreaseNumberOfPins(conversation.id, 1);
-
-        // Get socket user info
         const user = await this.userService.getUserBySocketId(client.id);
 
-        // Create notifition message
         const message = await p.message.create({
           data: {
-            body: 'unPin',
             type: 'notification',
+            notificationAction: 'unPin',
             conversationId: conversation.id,
             senderId: user.id,
           },
           select: MessageBasicSelect,
         });
 
-        // Emit event to online user
-        const onlineSockets = await p.user.findMany({
-          where: {
-            id: {
-              in: conversation.userIds,
-            },
-            isOnline: true,
-          },
-          select: {
-            socketId: true,
-          },
-        });
+        const users = await this.messageService.findConversationUser(
+          conversation.id,
+        );
 
-        for (const user of onlineSockets) {
-          this.server.to(user.socketId).emit(NEW_MESSAGE_EVENT, message);
-          this.server.to(user.socketId).emit(UN_PIN_MESSAGE_EVENT, unPinMessage);
+        for (const user of users) {
+          if (user.isOnline) {
+            this.server
+                .to(user.socketId)
+                .emit(SOCKET_EVENT.NEW_MESSAGE, message);
+              this.server
+              .to(user.socketId)
+              .emit(SOCKET_EVENT.UN_PIN_MESSAGE, unPinMessage);
+          }
         }
       });
     } catch (error) {

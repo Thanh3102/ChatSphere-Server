@@ -54,13 +54,14 @@ model Conversation {
   id            String   @id @default(auto()) @map("_id") @db.ObjectId
   createdt      DateTime @default(now())
   lastMessageAt DateTime @default(now())
-  isGroup       Boolean?
-  groupName     String?
-  groupImage    String?
   emoji         String   @default("1f44d")
+  numberOfPins  Int      @default(0)
+  pinLimit      Int      @default(5)
 
-  numberOfPins Int @default(0)
-  pinLimit     Int @default(5)
+  isGroup           Boolean?
+  groupName         String?
+  groupImage        String?
+  groupImageAssetId String?
 
   messageIds String[]  @db.ObjectId
   messages   Message[]
@@ -91,6 +92,9 @@ model Message {
   fileSecureURL String?
   fileName      String?
   fileSize      Int?
+
+  notificationAction String?
+  notificationTarget String?
 
   voiceDuration Int?
 

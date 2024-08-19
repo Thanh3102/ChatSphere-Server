@@ -1,21 +1,21 @@
-import { forwardRef, Inject, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  forwardRef,
+  Inject,
+  Injectable,
+} from '@nestjs/common';
 import { Response } from 'express';
 import { PrismaService } from 'src/config/db/prisma.service';
 import { defaultErrorMessage } from 'src/shared/constants/constants';
 import { CreateConversationDto, CreateMessageDto } from 'src/shared/types';
 import { MessageGateway } from './message.gateway';
 import {
-  NEW_MESSAGE_EVENT,
-  RECALL_MESSAGE_EVENT,
-  RELOAD_CONVERSATION_LIST_EVENT,
-  UN_PIN_MESSAGE_EVENT,
-} from 'src/shared/constants/socketEventListener';
-import {
   MessageBasicSelect,
   UserBasicSelect,
 } from 'src/shared/constants/prismaSelector';
 
-import { v2 as cloudinary, UploadApiResponse } from 'cloudinary';
+import { v2 as cloudinary, UploadApiOptions } from 'cloudinary';
+import { SOCKET_EVENT } from 'src/shared/enums';
 
 @Injectable()
 export class MessageService {
@@ -55,62 +55,32 @@ export class MessageService {
   }
 
   async createNewMessage(dto: CreateMessageDto, req, res: Response) {
-    let newMessage = undefined;
-    let currentUserId: string = req.user.id;
     try {
-      if (dto.message) {
-        await this.prisma.$transaction(async (p) => {
-          const message = await p.message.create({
-            data: {
-              body: dto.message,
-              type: dto.type,
-              conversationId: dto.conversationId,
-              senderId: currentUserId,
-              seenIds: [],
-              responseMessageId: dto.replyMessageId,
-            },
-            include: {
-              sender: true,
-              responseMessage: {
-                select: {
-                  id: true,
-                  body: true,
-                  type: true,
-                  recall: true,
-                  sender: {
-                    select: UserBasicSelect,
-                  },
-                },
-              },
-            },
-          });
+      if (!dto.message)
+        return res.status(400).json({ message: 'No message body' });
 
-          await p.conversation.update({
-            where: {
-              id: dto.conversationId,
-            },
-            data: {
-              lastMessageAt: new Date(),
-              lastMessageId: message.id,
-            },
-          });
+      const newMessage = await this.createMessage({
+        body: dto.message,
+        type: dto.type,
+        conversationId: dto.conversationId,
+        responseId: dto.replyMessageId,
+        senderId: req.user.id,
+      });
 
-          newMessage = message;
-        });
+      const users = await this.findConversationUser(dto.conversationId);
 
-        const { userIds } = await this.prisma.conversation.findUnique({
-          where: {
-            id: dto.conversationId,
-          },
-          select: {
-            userIds: true,
-          },
-        });
-
-        await this.sendNewMessageSocketEvent(newMessage, userIds);
-        return res.status(200).json({ message: 'Đã gửi tin nhắn' });
+      for (const user of users) {
+        if (user.isOnline) {
+          this.messageGateway.server
+            .to(user.socketId)
+            .emit(SOCKET_EVENT.NEW_MESSAGE, newMessage);
+          this.messageGateway.server
+            .to(user.socketId)
+            .emit(SOCKET_EVENT.RELOAD_CONVERSATION_LIST);
+        }
       }
-      return res.status(400).json({ message: 'No message content' });
+
+      return res.status(200).json({ message: 'Đã gửi tin nhắn' });
     } catch (error) {
       console.log(error);
       return res
@@ -128,66 +98,56 @@ export class MessageService {
     res: Response,
   ) {
     try {
-      if (file) {
-        const response = await this.uploadFile(file, conversationId);
-        const currentUserId = req.user.id;
-        const message = await this.prisma.message.create({
-          data: {
-            conversationId: conversationId,
-            senderId: currentUserId,
-            seenIds: [],
-            fileAssetId: response.asset_id,
-            fileURL: response.url,
-            fileSecureURL: response.secure_url,
-            fileName: file.originalname,
-            fileSize: file.size,
-            fileType: file.mimetype,
-            type: 'file',
-          },
-          include: {
-            sender: true,
-          },
-        });
+      if (!file) return res.status(400).json({ message: 'File not found' });
 
-        await this.prisma.conversation.update({
-          where: {
-            id: conversationId,
-          },
-          data: {
-            lastMessageAt: message.createdAt,
-            lastMessageId: message.id,
-          },
-        });
+      const response = await this.uploadFile(file, {
+        resource_type: 'auto',
+        public_id: file.originalname,
+        folder: `/conversation/${conversationId}`,
+      });
 
-        const { userIds } = await this.prisma.conversation.findUnique({
-          where: {
-            id: conversationId,
-          },
-          select: {
-            userIds: true,
-          },
-        });
+      const currentUserId = req.user.id;
+      const message = await this.prisma.message.create({
+        data: {
+          conversationId: conversationId,
+          senderId: currentUserId,
+          seenIds: [],
+          fileAssetId: response.asset_id,
+          fileURL: response.url,
+          fileSecureURL: response.secure_url,
+          fileName: file.originalname,
+          fileSize: file.size,
+          fileType: file.mimetype,
+          type: 'file',
+        },
+        include: {
+          sender: true,
+        },
+      });
 
-        userIds.forEach(async (userId) => {
-          const { socketId, isOnline } = await this.prisma.user.findUnique({
-            where: {
-              id: userId,
-            },
-            select: {
-              socketId: true,
-              isOnline: true,
-            },
-          });
-          if (isOnline) {
-            this.messageGateway.server
-              .to(socketId)
-              .emit(NEW_MESSAGE_EVENT, message);
-            this.messageGateway.server
-              .to(socketId)
-              .emit(RELOAD_CONVERSATION_LIST_EVENT);
-          }
-        });
+      await this.prisma.conversation.update({
+        where: {
+          id: conversationId,
+        },
+        data: {
+          lastMessageAt: message.createdAt,
+          lastMessageId: message.id,
+        },
+      });
+
+      const users = await this.findConversationUser(conversationId);
+
+      for (const user of users) {
+        if (user.isOnline) {
+          this.messageGateway.server
+            .to(user.socketId)
+            .emit(SOCKET_EVENT.NEW_MESSAGE, message);
+          this.messageGateway.server
+            .to(user.socketId)
+            .emit(SOCKET_EVENT.RELOAD_CONVERSATION_LIST);
+        }
       }
+
       return res.status(200).json({ message: 'Upload file thành công' });
     } catch (error) {
       console.log(error);
@@ -208,7 +168,11 @@ export class MessageService {
   ) {
     try {
       if (!file) return res.status(400).json({ message: 'No audio file' });
-      const response = await this.uploadVoiceFile(file, conversationId);
+      const response = await this.uploadFile(file, {
+        resource_type: 'auto',
+        public_id: conversationId,
+        folder: `/conversation/${conversationId}/voice/${conversationId}`,
+      });
       const currentUserId = req.user.id;
       const message = await this.prisma.message.create({
         data: {
@@ -239,34 +203,18 @@ export class MessageService {
         },
       });
 
-      const { userIds } = await this.prisma.conversation.findUnique({
-        where: {
-          id: conversationId,
-        },
-        select: {
-          userIds: true,
-        },
-      });
+      const users = await this.findConversationUser(conversationId);
 
-      userIds.forEach(async (userId) => {
-        const { socketId, isOnline } = await this.prisma.user.findUnique({
-          where: {
-            id: userId,
-          },
-          select: {
-            socketId: true,
-            isOnline: true,
-          },
-        });
-        if (isOnline) {
+      for (const user of users) {
+        if (user.isOnline) {
           this.messageGateway.server
-            .to(socketId)
-            .emit(NEW_MESSAGE_EVENT, message);
+            .to(user.socketId)
+            .emit(SOCKET_EVENT.NEW_MESSAGE, message);
           this.messageGateway.server
-            .to(socketId)
-            .emit(RELOAD_CONVERSATION_LIST_EVENT);
+            .to(user.socketId)
+            .emit(SOCKET_EVENT.RELOAD_CONVERSATION_LIST);
         }
-      });
+      }
 
       return res.status(200).json({ message: 'Upload file thành công' });
     } catch (error) {
@@ -288,6 +236,8 @@ export class MessageService {
         select: {
           id: true,
           isGroup: true,
+          groupImage: true,
+          groupName: true,
           lastMessageAt: true,
           lastMessage: {
             select: MessageBasicSelect,
@@ -415,19 +365,14 @@ export class MessageService {
   }
 
   async getOlderConversationMessages(
-    {
-      conversationId,
-      before,
-      to,
-    }: {
+    payload: {
       conversationId: string;
       before: Date;
       to?: Date;
     },
     res: Response,
   ) {
-    console.log('>>> Before', before);
-
+    const { conversationId, before, to } = payload;
     try {
       const olderMessages = await this.findOlderMessages(
         conversationId,
@@ -455,8 +400,6 @@ export class MessageService {
     const { conversationId, before, type } = payload;
     try {
       let files = [];
-      console.log('type', type);
-
       if (type === 'mediaFile') {
         files = await this.findConversationMediaFile({
           conversationId: conversationId,
@@ -578,6 +521,8 @@ export class MessageService {
       },
       select: MessageBasicSelect,
     });
+    await this.increaseNumberOfPins(pinMessage.conversation.id, 1);
+
     return pinMessage;
   }
 
@@ -592,6 +537,8 @@ export class MessageService {
       },
       select: MessageBasicSelect,
     });
+    await this.decreaseNumberOfPins(unPinMessage.conversation.id, 1);
+
     return unPinMessage;
   }
 
@@ -621,6 +568,219 @@ export class MessageService {
       },
     });
     return conversation;
+  }
+
+  async updateConversationSetting(
+    dto: {
+      id: string;
+      emoji?: string;
+      groupName?: string;
+      groupImage?: Express.Multer.File;
+    },
+    req,
+    res: Response,
+  ) {
+    try {
+      const { id, emoji, groupName, groupImage } = dto;
+
+      if (!id) throw new BadRequestException('Required conversation id');
+
+      if (emoji) {
+        await this.changeConversationEmoji(id, emoji, req.user.id);
+      }
+
+      if (groupName) {
+        this.changeConversationName(id, groupName, req.user.id);
+      }
+
+      if (groupImage) {
+        this.changeConversationImage(id, groupImage, req.user.id);
+      }
+
+      return res.status(200).json({});
+    } catch (error) {
+      return res
+        .status(500)
+        .json({ message: error.message ?? defaultErrorMessage });
+    }
+  }
+
+  async changeConversationEmoji(id: string, emoji: string, senderId: string) {
+    await this.prisma.conversation.update({
+      where: {
+        id: id,
+      },
+      data: {
+        emoji: emoji,
+      },
+    });
+
+    const message = await this.prisma.message.create({
+      data: {
+        type: 'notification',
+        notificationAction: 'changeEmoji',
+        notificationTarget: emoji,
+        conversationId: id,
+        seenIds: [],
+        senderId: senderId,
+      },
+      select: MessageBasicSelect,
+    });
+
+    const users = await this.findConversationUser(id);
+    for (const user of users) {
+      if (user.isOnline) {
+        this.messageGateway.server
+          .to(user.socketId)
+          .emit(SOCKET_EVENT.CHANGE_CONVERSATION_EMOJI, { emoji: emoji });
+        this.messageGateway.server
+          .to(user.socketId)
+          .emit(SOCKET_EVENT.NEW_MESSAGE, message);
+      }
+    }
+  }
+
+  async changeConversationName(id: string, name: string, senderId: string) {
+    await this.prisma.conversation.update({
+      where: {
+        id: id,
+      },
+      data: {
+        groupName: name,
+      },
+    });
+
+    const message = await this.prisma.message.create({
+      data: {
+        type: 'notification',
+        notificationAction: 'changeGroupName',
+        notificationTarget: name,
+        conversationId: id,
+        seenIds: [],
+        senderId: senderId,
+      },
+      select: MessageBasicSelect,
+    });
+
+    const users = await this.findConversationUser(id);
+
+    for (const user of users) {
+      if (user.isOnline) {
+        this.messageGateway.server
+          .to(user.socketId)
+          .emit(SOCKET_EVENT.CHANGE_CONVERSATION_GROUP_NAME, name);
+        this.messageGateway.server
+          .to(user.socketId)
+          .emit(SOCKET_EVENT.NEW_MESSAGE, message);
+        this.messageGateway.server
+          .to(user.socketId)
+          .emit(SOCKET_EVENT.RELOAD_CONVERSATION_LIST);
+      }
+    }
+  }
+
+  async changeConversationImage(
+    id: string,
+    image: Express.Multer.File,
+    senderId: string,
+  ) {
+    const response = await this.uploadFile(image, {
+      folder: `/conversation/${id}/groupAvatar`,
+      public_id: `groupAvatar-${Date.now().toString()}`,
+      resource_type: 'auto',
+    });
+
+    await this.prisma.conversation.update({
+      where: {
+        id: id,
+      },
+      data: {
+        groupImage: response.url,
+        groupImageAssetId: response.assetId,
+      },
+    });
+
+    const message = await this.prisma.message.create({
+      data: {
+        type: 'notification',
+        notificationAction: 'changeGroupImage',
+        conversationId: id,
+        seenIds: [],
+        senderId: senderId,
+      },
+      select: MessageBasicSelect,
+    });
+
+    const users = await this.findConversationUser(id);
+
+    for (const user of users) {
+      if (user.isOnline) {
+        this.messageGateway.server
+          .to(user.socketId)
+          .emit(SOCKET_EVENT.CHANGE_CONVERSATION_GROUP_IMAGE, response.url);
+        this.messageGateway.server
+          .to(user.socketId)
+          .emit(SOCKET_EVENT.NEW_MESSAGE, message);
+        this.messageGateway.server
+          .to(user.socketId)
+          .emit(SOCKET_EVENT.RELOAD_CONVERSATION_LIST);
+      }
+    }
+  }
+
+  private async createMessage(payload: {
+    body: string;
+    type: string;
+    conversationId: string;
+    responseId: string;
+    senderId: string;
+  }) {
+    try {
+      let newMessage;
+      await this.prisma.$transaction(async (p) => {
+        const { body, type, conversationId, responseId, senderId } = payload;
+        const message = await p.message.create({
+          data: {
+            body: body,
+            type: type,
+            conversationId: conversationId,
+            senderId: senderId,
+            seenIds: [],
+            responseMessageId: responseId,
+          },
+          include: {
+            sender: true,
+            responseMessage: {
+              select: {
+                id: true,
+                body: true,
+                type: true,
+                recall: true,
+                sender: {
+                  select: UserBasicSelect,
+                },
+              },
+            },
+          },
+        });
+
+        await p.conversation.update({
+          where: {
+            id: conversationId,
+          },
+          data: {
+            lastMessageAt: new Date(),
+            lastMessageId: message.id,
+          },
+        });
+
+        newMessage = message;
+      });
+      return newMessage;
+    } catch (error) {
+      console.log(error);
+      throw new Error(error.message ?? defaultErrorMessage);
+    }
   }
 
   private async findConversationMessage(conversationId: string) {
@@ -685,7 +845,7 @@ export class MessageService {
     return messages;
   }
 
-  private uploadFile(file: Express.Multer.File, conversationId: string) {
+  private uploadFile(file: Express.Multer.File, config: UploadApiOptions) {
     cloudinary.config({
       cloud_name: process.env.CLOUDINARY_NAME,
       api_key: process.env.CLOUDINARY_API_KEY,
@@ -694,50 +854,13 @@ export class MessageService {
 
     const uploadPromise = new Promise<any>((resolve, reject) => {
       cloudinary.uploader
-        .upload_stream(
-          {
-            resource_type: 'auto',
-            public_id: file.originalname,
-            folder: `/conversation/${conversationId}`,
-          },
-          (error, result) => {
-            if (error) {
-              reject(error.message);
-            } else {
-              resolve(result);
-            }
-          },
-        )
-        .end(file.buffer);
-    });
-
-    return uploadPromise;
-  }
-
-  private uploadVoiceFile(file: Express.Multer.File, conversationId: string) {
-    cloudinary.config({
-      cloud_name: process.env.CLOUDINARY_NAME,
-      api_key: process.env.CLOUDINARY_API_KEY,
-      api_secret: process.env.CLOUDINARY_API_SECRET,
-    });
-
-    const uploadPromise = new Promise<any>((resolve, reject) => {
-      const id = Date.now().toString();
-      cloudinary.uploader
-        .upload_stream(
-          {
-            resource_type: 'auto',
-            public_id: id,
-            folder: `/conversation/${conversationId}/voice/${id}`,
-          },
-          (error, result) => {
-            if (error) {
-              reject(error.message);
-            } else {
-              resolve(result);
-            }
-          },
-        )
+        .upload_stream(config, (error, result) => {
+          if (error) {
+            reject(error.message);
+          } else {
+            resolve(result);
+          }
+        })
         .end(file.buffer);
     });
 
@@ -762,35 +885,13 @@ export class MessageService {
       if (isOnline) {
         this.messageGateway.server
           .to(socketId)
-          .emit(RECALL_MESSAGE_EVENT, conversationId, recallMessage.id);
+          .emit(SOCKET_EVENT.RECALL_MESSAGE, conversationId, recallMessage.id);
         this.messageGateway.server
           .to(socketId)
-          .emit(RELOAD_CONVERSATION_LIST_EVENT);
+          .emit(SOCKET_EVENT.RELOAD_CONVERSATION_LIST);
         this.messageGateway.server
           .to(socketId)
-          .emit(UN_PIN_MESSAGE_EVENT, recallMessage);
-      }
-    });
-  }
-
-  private async sendNewMessageSocketEvent(newMessage: any, userIds: string[]) {
-    userIds.forEach(async (userId) => {
-      const { socketId, isOnline } = await this.prisma.user.findUnique({
-        where: {
-          id: userId,
-        },
-        select: {
-          socketId: true,
-          isOnline: true,
-        },
-      });
-      if (isOnline) {
-        this.messageGateway.server
-          .to(socketId)
-          .emit(NEW_MESSAGE_EVENT, newMessage);
-        this.messageGateway.server
-          .to(socketId)
-          .emit(RELOAD_CONVERSATION_LIST_EVENT);
+          .emit(SOCKET_EVENT.UN_PIN_MESSAGE, recallMessage);
       }
     });
   }
@@ -873,6 +974,29 @@ export class MessageService {
         take: 10,
       });
       return files;
+    } catch (error) {
+      console.log(error);
+      return [];
+    }
+  }
+
+  async findConversationUser(conversationId: string) {
+    try {
+      const { users } = await this.prisma.conversation.findUnique({
+        where: {
+          id: conversationId,
+        },
+        select: {
+          users: {
+            select: {
+              id: true,
+              isOnline: true,
+              socketId: true,
+            },
+          },
+        },
+      });
+      return users;
     } catch (error) {
       console.log(error);
       return [];

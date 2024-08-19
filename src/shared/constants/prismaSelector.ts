@@ -28,6 +28,9 @@ export const MessageBasicSelect = {
   fileURL: true,
   fileSecureURL: true,
   fileSize: true,
+  voiceDuration: true,
+  notificationAction: true,
+  notificationTarget: true,
   responseMessage: {
     select: {
       id: true,
@@ -44,5 +47,10 @@ export const MessageBasicSelect = {
   },
   sender: {
     select: UserBasicSelect,
+  },
+  conversation: {
+    select: {
+      id: true,
+    },
   },
 };
