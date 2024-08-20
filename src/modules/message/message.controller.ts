@@ -28,16 +28,6 @@ export class MessageController {
   constructor(private messageService: MessageService) {}
 
   @UseGuards(JwtGuard)
-  @Post('/createConversation')
-  createConversation(
-    @Body() dto: CreateConversationDto,
-    @Req() req,
-    @Res() res: Response,
-  ) {
-    return this.messageService.createConversation(dto, req, res);
-  }
-
-  @UseGuards(JwtGuard)
   @Post('/sendMessage')
   sendMessage(@Body() dto: CreateMessageDto, @Req() req, @Res() res: Response) {
     return this.messageService.createNewMessage(dto, req, res);
@@ -57,22 +47,6 @@ export class MessageController {
       req,
       res,
     );
-  }
-
-  @UseGuards(JwtGuard)
-  @Get('/getConversation')
-  getConversation(@Req() req, @Res() res: Response) {
-    return this.messageService.getUserConversation(req.user.id, res);
-  }
-
-  @UseGuards(JwtGuard)
-  @Get('/getConversationInfo')
-  getConversationInfo(
-    @Query('id') conversationId: string,
-    @Req() req,
-    @Res() res: Response,
-  ) {
-    return this.messageService.getConversationInfo(conversationId, req, res);
   }
 
   @UseGuards(JwtGuard)
@@ -114,24 +88,6 @@ export class MessageController {
   }
 
   @UseGuards(JwtGuard)
-  @Post('/checkConversationExists')
-  checkConversationExists(@Body() body, @Req() req, @Res() res: Response) {
-    return this.messageService.checkConversationExists(body.userIds, req, res);
-  }
-
-  @UseGuards(JwtGuard)
-  @Get('/getConversationFile')
-  getConversationFile(@Query() { id, before, type }, @Res() res: Response) {
-    if (!id) {
-      throw new BadRequestException();
-    }
-    const payload: any = { conversationId: id, type: type };
-    if (before) payload.before = new Date(before);
-
-    return this.messageService.getConversationFile(payload, res);
-  }
-
-  @UseGuards(JwtGuard)
   @Post('/recallMessage')
   recallMessage(@Query('id') id: string, @Res() res: Response) {
     return this.messageService.recallMessage(id, res);
@@ -153,22 +109,5 @@ export class MessageController {
     };
 
     return this.messageService.uploadVoiceClip(payload, req, res);
-  }
-
-  @UseGuards(JwtGuard)
-  @Put('/updateConversationSetting')
-  @UseInterceptors(FileInterceptor('image'))
-  updateConversationSetting(
-    @UploadedFile() image: Express.Multer.File,
-    @Body()
-    dto: { id: string; emoji: string; groupName: string },
-    @Req() req,
-    @Res() res: Response,
-  ) {
-    return this.messageService.updateConversationSetting(
-      { ...dto, groupImage: image },
-      req,
-      res,
-    );
   }
 }

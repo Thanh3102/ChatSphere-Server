@@ -21,6 +21,7 @@ import {
 import { MessageService } from './message.service';
 import { forwardRef, Inject } from '@nestjs/common';
 import { SOCKET_EVENT } from 'src/shared/enums';
+import { ConversationService } from '../conversation/conversation.service';
 
 @WebSocketGateway(3002, {
   cors: {
@@ -31,10 +32,12 @@ export class MessageGateway
   implements OnGatewayConnection, OnGatewayDisconnect
 {
   constructor(
-    private userService: UserService,
     @Inject(forwardRef(() => MessageService))
     private messageService: MessageService,
+    @Inject(forwardRef(() => ConversationService))
+    private conversationService: ConversationService,
     private prisma: PrismaService,
+    private userService: UserService,
   ) {}
 
   @WebSocketServer()
@@ -284,7 +287,7 @@ export class MessageGateway
             select: MessageBasicSelect,
           });
 
-          const users = await this.messageService.findConversationUser(
+          const users = await this.conversationService.findConversationUser(
             conversation.id,
           );
 
@@ -342,16 +345,16 @@ export class MessageGateway
           select: MessageBasicSelect,
         });
 
-        const users = await this.messageService.findConversationUser(
+        const users = await this.conversationService.findConversationUser(
           conversation.id,
         );
 
         for (const user of users) {
           if (user.isOnline) {
             this.server
-                .to(user.socketId)
-                .emit(SOCKET_EVENT.NEW_MESSAGE, message);
-              this.server
+              .to(user.socketId)
+              .emit(SOCKET_EVENT.NEW_MESSAGE, message);
+            this.server
               .to(user.socketId)
               .emit(SOCKET_EVENT.UN_PIN_MESSAGE, unPinMessage);
           }

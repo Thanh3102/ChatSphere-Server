@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule } from '@nestjs/config';
 import { UserModule } from './modules/user/user.module';
 import { MessageModule } from './modules/message/message.module';
+import { ConversationModule } from './modules/conversation/conversation.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { MessageModule } from './modules/message/message.module';
     AuthModule,
     UserModule,
     MessageModule,
+    ConversationModule,
   ],
   controllers: [],
   providers: [],

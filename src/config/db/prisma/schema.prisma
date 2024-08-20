@@ -52,7 +52,7 @@ model EmailVerifyOTP {
 
 model Conversation {
   id            String   @id @default(auto()) @map("_id") @db.ObjectId
-  createdt      DateTime @default(now())
+  createdAt     DateTime @default(now())
   lastMessageAt DateTime @default(now())
   emoji         String   @default("1f44d")
   numberOfPins  Int      @default(0)
