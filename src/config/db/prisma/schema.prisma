@@ -27,8 +27,17 @@ model User {
   isOnline     Boolean  @default(false)
   lastOnlineAt DateTime @default(now())
 
-  conversationIds String[]       @db.ObjectId
-  conversation    Conversation[] @relation(fields: [conversationIds], references: [id])
+  conversationMemberIds String[]             @db.ObjectId
+  conversationMembers   ConversationMember[] @relation("ConversationMember_User")
+
+  memberAddedIds String[]             @db.ObjectId
+  memberAddeds   ConversationMember[] @relation("ConversationMember_AddedUser")
+
+  memberChagnedNickNameIds String[]             @db.ObjectId
+  memberChagnedNickNames   ConversationMember[] @relation("ConversationMember_NickNameChangedUser")
+
+  createdConversationIds String[]
+  createdConversations   Conversation[] @relation("Conversation_CreatedUser")
 
   seenMessageIds String[]  @db.ObjectId
   seenMessages   Message[] @relation("Seen", fields: [seenMessageIds], references: [id])
@@ -58,10 +67,15 @@ model Conversation {
   numberOfPins  Int      @default(0)
   pinLimit      Int      @default(5)
 
-  isGroup           Boolean?
-  groupName         String?
-  groupImage        String?
-  groupImageAssetId String?
+  isGroup             Boolean?
+  groupName           String?
+  groupImage          String?
+  groupImageAssetId   String?
+  groupNumberOfMember Int?     @default(0)
+  groupMaxMember      Int?     @default(250)
+
+  createdBy   String @db.ObjectId
+  createdUser User   @relation("Conversation_CreatedUser", fields: [createdBy], references: [id])
 
   messageIds String[]  @db.ObjectId
   messages   Message[]
@@ -69,10 +83,32 @@ model Conversation {
   lastMessageId String?  @unique @db.ObjectId
   lastMessage   Message? @relation("lastMessage", references: [id], fields: [lastMessageId], onUpdate: Cascade, onDelete: SetNull)
 
-  userIds String[] @db.ObjectId
-  users   User[]   @relation(fields: [userIds], references: [id])
+  memberIds String[]             @db.ObjectId
+  members   ConversationMember[] @relation("ConversationMember_Conversation")
 
   room Room?
+}
+
+model ConversationMember {
+  id       String   @id @default(auto()) @map("_id") @db.ObjectId
+  joinedAt DateTime @default(now())
+  role     String   @default("member")
+
+  nickName String? @db.ObjectId
+
+  nickNameChangedBy   String? @db.ObjectId
+  nickNameChangedUser User?   @relation("ConversationMember_NickNameChangedUser", fields: [nickNameChangedBy], references: [id])
+
+  addedBy   String @db.ObjectId
+  addedUser User   @relation("ConversationMember_AddedUser", fields: [addedBy], references: [id])
+
+  userId String @db.ObjectId
+  user   User   @relation("ConversationMember_User", fields: [userId], references: [id])
+
+  conversationId String       @db.ObjectId
+  conversation   Conversation @relation("ConversationMember_Conversation", fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
 }
 
 model Message {

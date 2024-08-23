@@ -79,25 +79,29 @@ export class MessageGateway
     });
 
     // Invite online user in conversation to this room
-    const { users } = await this.prisma.conversation.findFirst({
+    const { members } = await this.prisma.conversation.findFirst({
       where: {
         id: payload.conversationId,
       },
       select: {
-        users: {
+        members: {
           select: {
-            ...UserBasicSelect,
-            isOnline: true,
-            socketId: true,
+            user: {
+              select: {
+                ...UserBasicSelect,
+                isOnline: true,
+                socketId: true,
+              },
+            },
           },
         },
       },
     });
 
-    for (const user of users) {
-      if (user.id === payload.userId) continue;
-      if (user.isOnline) {
-        this.server.to(user.socketId).emit('inviteCall', {
+    for (const member of members) {
+      if (member.user.id === payload.userId) continue;
+      if (member.user.isOnline) {
+        this.server.to(member.user.socketId).emit('inviteCall', {
           room: room.id,
           from: {
             name: callUser.name,
@@ -256,53 +260,52 @@ export class MessageGateway
               id: true,
               numberOfPins: true,
               pinLimit: true,
-              userIds: true,
             },
           },
         },
       });
 
-      const { numberOfPins, pinLimit, userIds } = conversation;
+      const { numberOfPins, pinLimit } = conversation;
 
       if (numberOfPins === pinLimit) {
         this.server
           .to(client.id)
           .emit('error', { message: `Số lượng ghim giới hạn là ${pinLimit}` });
         return;
-      } else {
-        await this.prisma.$transaction(async (p) => {
-          const pinMessage = await this.messageService.pinMessage(
-            payload.messageId,
-          );
-
-          const user = await this.userService.getUserBySocketId(client.id);
-
-          const message = await p.message.create({
-            data: {
-              type: 'notification',
-              notificationAction: 'pin',
-              conversationId: conversation.id,
-              senderId: user.id,
-            },
-            select: MessageBasicSelect,
-          });
-
-          const users = await this.conversationService.findConversationUser(
-            conversation.id,
-          );
-
-          for (const user of users) {
-            if (user.isOnline) {
-              this.server
-                .to(user.socketId)
-                .emit(SOCKET_EVENT.NEW_MESSAGE, message);
-              this.server
-                .to(user.socketId)
-                .emit(SOCKET_EVENT.PIN_MESSAGE, pinMessage);
-            }
-          }
-        });
       }
+
+      await this.prisma.$transaction(async (p) => {
+        const pinMessage = await this.messageService.pinMessage(
+          payload.messageId,
+        );
+
+        const user = await this.userService.getUserBySocketId(client.id);
+
+        const message = await p.message.create({
+          data: {
+            type: 'notification',
+            notificationAction: 'pin',
+            conversationId: conversation.id,
+            senderId: user.id,
+          },
+          select: MessageBasicSelect,
+        });
+
+        const users = await this.conversationService.findConversationUser(
+          conversation.id,
+        );
+
+        for (const user of users) {
+          if (user.isOnline) {
+            this.server
+              .to(user.socketId)
+              .emit(SOCKET_EVENT.NEW_MESSAGE, message);
+            this.server
+              .to(user.socketId)
+              .emit(SOCKET_EVENT.PIN_MESSAGE, pinMessage);
+          }
+        }
+      });
     } catch (error) {
       console.log(error);
       this.server
@@ -322,7 +325,6 @@ export class MessageGateway
           conversation: {
             select: {
               id: true,
-              userIds: true,
             },
           },
         },

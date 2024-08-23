@@ -40,7 +40,9 @@ export class MessageService {
         senderId: req.user.id,
       });
 
-      const users = await this.conversationService.findConversationUser(dto.conversationId);
+      const users = await this.conversationService.findConversationUser(
+        dto.conversationId,
+      );
 
       for (const user of users) {
         if (user.isOnline) {
@@ -108,7 +110,8 @@ export class MessageService {
         },
       });
 
-      const users = await this.conversationService.findConversationUser(conversationId);
+      const users =
+        await this.conversationService.findConversationUser(conversationId);
 
       for (const user of users) {
         if (user.isOnline) {
@@ -176,7 +179,8 @@ export class MessageService {
         },
       });
 
-      const users = await this.conversationService.findConversationUser(conversationId);
+      const users =
+        await this.conversationService.findConversationUser(conversationId);
 
       for (const user of users) {
         if (user.isOnline) {
@@ -202,7 +206,9 @@ export class MessageService {
     if (!conversationId) {
       return res.status(500).json({ message: 'Invalid conversation ID' });
     }
+
     const currentUserId: string = req.user.id;
+
     try {
       const conversation = await this.prisma.conversation.findUnique({
         where: {
@@ -210,21 +216,24 @@ export class MessageService {
         },
         select: {
           id: true,
-          users: {
+          members: {
             select: {
-              id: true,
+              userId: true,
             },
           },
         },
       });
 
-      if (!conversation.users.some((user) => user.id === currentUserId)) {
+      if (
+        !conversation.members.some((member) => member.userId === currentUserId)
+      ) {
         return res
           .status(500)
           .json({ message: 'Bạn không có trong cuộc trò chuyện này' });
       }
 
-      const messages = await this.conversationService.findConversationMessage(conversationId);
+      const messages =
+        await this.conversationService.findConversationMessage(conversationId);
 
       return res.status(200).json({ messages: messages });
     } catch (error) {
@@ -273,7 +282,11 @@ export class MessageService {
           conversation: {
             select: {
               id: true,
-              userIds: true,
+              members: {
+                select: {
+                  userId: true,
+                },
+              },
             },
           },
         },
@@ -287,7 +300,7 @@ export class MessageService {
       this.sendRecallSocketEvent(
         recallMessage,
         recallMessage.conversation.id,
-        recallMessage.conversation.userIds,
+        recallMessage.conversation.members.map(member => member.userId),
       );
 
       return res.status(200).json({ message: 'Đã thu hồi tin nhắn' });

@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Post,
   Put,
@@ -89,5 +90,68 @@ export class ConversationController {
       req,
       res,
     );
+  }
+
+  @UseGuards(JwtGuard)
+  @Post('/addNewMember')
+  addNewMember(
+    @Body() body: { conversationId: string; newMemberIds: string[] },
+    @Req() req,
+    @Res() res: Response,
+  ) {
+    return this.conversationService.addNewMember(
+      {
+        addedUserId: req.user.id,
+        conversationId: body.conversationId,
+        newMemberIds: body.newMemberIds,
+      },
+      res,
+    );
+  }
+
+  @UseGuards(JwtGuard)
+  @Delete('/removeMember')
+  removeMember(
+    @Body() body: { conversationId: string; removeId: string },
+    @Req() req,
+    @Res() res: Response,
+  ) {
+    return this.conversationService.removeMember(
+      {
+        conversationId: body.conversationId,
+        removeId: body.removeId,
+        removeUserId: req.user.id,
+      },
+      res,
+    );
+  }
+
+  @UseGuards(JwtGuard)
+  @Put('/promoteMember')
+  promoteMember(
+    @Body() body: { memberId: string },
+    @Req() req,
+    @Res() res: Response,
+  ) {
+    return this.conversationService.promoteMember(body.memberId, req, res);
+  }
+
+  @UseGuards(JwtGuard)
+  @Put('/downgradeMember')
+  downgradeMember(
+    @Body() body: { memberId: string },
+    @Req() req,
+    @Res() res: Response,
+  ) {
+    return this.conversationService.downgradeMember(body.memberId, req, res);
+  }
+
+  @UseGuards(JwtGuard)
+  @Put('/leftGroup')
+  leftGroup(
+    @Body() body: { memberId: string },
+    @Res() res: Response,
+  ) {
+    return this.conversationService.leftConversation(body.memberId, res);
   }
 }

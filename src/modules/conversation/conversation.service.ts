@@ -1,10 +1,18 @@
-import { BadRequestException, forwardRef, Inject, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  forwardRef,
+  Inject,
+  Injectable,
+} from '@nestjs/common';
 import { PrismaService } from 'src/config/db/prisma.service';
 import { MessageGateway } from '../message/message.gateway';
 import { CreateConversationDto } from 'src/shared/types';
 import { Response } from 'express';
 import { defaultErrorMessage } from 'src/shared/constants/constants';
-import { MessageBasicSelect } from 'src/shared/constants/prismaSelector';
+import {
+  MessageBasicSelect,
+  UserBasicSelect,
+} from 'src/shared/constants/prismaSelector';
 import { SOCKET_EVENT } from 'src/shared/enums';
 import { CloudinaryService } from 'src/utils/cloudinary.service';
 
@@ -26,11 +34,28 @@ export class ConversationService {
     let currentUserId: string = req.user.id;
 
     try {
+      const memberIds = [
+        currentUserId,
+        ...dto.members.map((member) => member.id),
+      ];
+      const members = memberIds.map((memberId) => {
+        if (memberId === currentUserId) {
+          return { userId: memberId, addedBy: currentUserId, role: 'owner' };
+        }
+        return { userId: memberId, addedBy: currentUserId };
+      });
+
       await this.prisma.$transaction(async (p) => {
         const conversation = await p.conversation.create({
           data: {
             isGroup: dto.members.length > 1 ? true : false,
-            userIds: [currentUserId, ...dto.members.map((member) => member.id)],
+            createdBy: currentUserId,
+            members: {
+              create: members,
+            },
+            groupMaxMember: dto.members.length > 1 ? 250 : undefined,
+            groupNumberOfMember:
+              dto.members.length > 1 ? dto.members.length + 1 : undefined,
           },
         });
         newConversation = conversation;
@@ -50,8 +75,10 @@ export class ConversationService {
     try {
       const conversations = await this.prisma.conversation.findMany({
         where: {
-          userIds: {
-            has: userId,
+          members: {
+            some: {
+              userId: userId,
+            },
           },
         },
         select: {
@@ -63,12 +90,17 @@ export class ConversationService {
           lastMessage: {
             select: MessageBasicSelect,
           },
-          users: {
+          members: {
             select: {
               id: true,
-              name: true,
-              email: true,
-              image: true,
+              user: {
+                select: UserBasicSelect,
+              },
+              addedUser: {
+                select: UserBasicSelect,
+              },
+              joinedAt: true,
+              nickName: true,
             },
           },
         },
@@ -100,22 +132,49 @@ export class ConversationService {
           groupImage: true,
           groupName: true,
           emoji: true,
+          groupNumberOfMember: true,
+          groupMaxMember: true,
           lastMessageAt: true,
           lastMessage: {
             select: MessageBasicSelect,
           },
-          users: {
+          members: {
             select: {
               id: true,
-              name: true,
-              image: true,
-              email: true,
+              user: {
+                select: UserBasicSelect,
+              },
+              addedUser: {
+                select: UserBasicSelect,
+              },
+              joinedAt: true,
+              nickName: true,
+              role: true,
+            },
+            orderBy: {
+              role: 'asc',
             },
           },
         },
       });
 
-      if (!conversation.users.some((user) => user.id === currentUserId)) {
+      const rolePriority = {
+        owner: 1,
+        admin: 2,
+        member: 3,
+      };
+
+      let sortMemberByRole = [];
+
+      if (conversation.members.length !== 0) {
+        sortMemberByRole = conversation.members.sort((a, b) => {
+          return rolePriority[a.role] - rolePriority[b.role];
+        });
+      }
+
+      if (
+        !conversation.members.some((member) => member.user.id === currentUserId)
+      ) {
         return res
           .status(500)
           .json({ message: 'Bạn không có trong cuộc trò chuyện này' });
@@ -135,6 +194,7 @@ export class ConversationService {
 
       return res.status(200).json({
         ...conversation,
+        members: sortMemberByRole,
         messages: messages,
         pinMessages: pinMessages,
         mediaFiles: mediaFiles,
@@ -150,20 +210,28 @@ export class ConversationService {
 
   async findConversationUser(conversationId: string) {
     try {
-      const { users } = await this.prisma.conversation.findUnique({
+      const { members } = await this.prisma.conversation.findUnique({
         where: {
           id: conversationId,
         },
         select: {
-          users: {
+          members: {
             select: {
-              id: true,
-              isOnline: true,
-              socketId: true,
+              user: {
+                select: {
+                  id: true,
+                  isOnline: true,
+                  socketId: true,
+                },
+              },
             },
           },
         },
       });
+      let users: { id: string; isOnline: boolean; socketId: string }[] = [];
+      for (const member of members) {
+        users.push({ ...member.user });
+      }
       return users;
     } catch (error) {
       console.log(error);
@@ -327,15 +395,20 @@ export class ConversationService {
       let existConversation = null;
       const conversations = await this.prisma.conversation.findMany({
         where: {
-          userIds: {
-            hasSome: [currentUserId],
+          members: {
+            some: {
+              userId: currentUserId,
+            },
           },
+        },
+        include: {
+          members: true,
         },
       });
 
       // Check if conversation exitst
       for (const conversation of conversations) {
-        const arrayA = conversation.userIds.sort();
+        const arrayA = conversation.members.map((member) => member.id).sort();
         const arrayB = [currentUserId, ...userIds].sort();
         if (arrayA.length === arrayB.length) {
           if (arrayA.every((userId, index) => userId === arrayB[index])) {
@@ -526,5 +599,363 @@ export class ConversationService {
           .emit(SOCKET_EVENT.RELOAD_CONVERSATION_LIST);
       }
     }
+  }
+
+  async addNewMember(
+    payload: {
+      newMemberIds: string[];
+      addedUserId: string;
+      conversationId: string;
+    },
+    res: Response,
+  ) {
+    const { newMemberIds, addedUserId, conversationId } = payload;
+    const { groupMaxMember, groupNumberOfMember } =
+      await this.prisma.conversation.findUnique({
+        where: {
+          id: conversationId,
+        },
+        select: {
+          groupNumberOfMember: true,
+          groupMaxMember: true,
+        },
+      });
+
+    if (groupNumberOfMember + newMemberIds.length > groupMaxMember)
+      return res.status(409).json({
+        message: `Số người tối đã trong nhóm chat là ${groupMaxMember}`,
+      });
+
+    for (const newMemberId of newMemberIds) {
+      const member = await this.prisma.conversationMember.create({
+        data: {
+          addedBy: addedUserId,
+          conversationId: conversationId,
+          userId: newMemberId,
+        },
+        include: {
+          user: {
+            select: UserBasicSelect,
+          },
+          addedUser: {
+            select: UserBasicSelect,
+          },
+          nickNameChangedUser: {
+            select: UserBasicSelect,
+          },
+        },
+      });
+
+      const message = await this.prisma.message.create({
+        data: {
+          type: 'notification',
+          notificationAction: 'addMember',
+          notificationTarget: member.user.name,
+          senderId: addedUserId,
+          conversationId: conversationId,
+        },
+        select: MessageBasicSelect,
+      });
+
+      const users = await this.findConversationUser(conversationId);
+
+      for (const user of users) {
+        if (user.isOnline) {
+          this.messageGateway.server
+            .to(user.socketId)
+            .emit(SOCKET_EVENT.ADD_NEW_MEMBER, { member: member });
+          this.messageGateway.server
+            .to(user.socketId)
+            .emit(SOCKET_EVENT.NEW_MESSAGE, message);
+        }
+      }
+    }
+
+    await this.prisma.conversation.update({
+      where: {
+        id: conversationId,
+      },
+      data: {
+        groupNumberOfMember: {
+          increment: newMemberIds.length,
+        },
+      },
+    });
+
+    return res.status(200).json({});
+  }
+
+  async removeMember(
+    payload: {
+      removeId: string;
+      removeUserId: string;
+      conversationId: string;
+    },
+    res: Response,
+  ) {
+    const { removeUserId, removeId, conversationId } = payload;
+
+    const member = await this.prisma.conversationMember.delete({
+      where: {
+        id: removeId,
+      },
+      include: {
+        user: {
+          select: UserBasicSelect,
+        },
+        addedUser: {
+          select: UserBasicSelect,
+        },
+        nickNameChangedUser: {
+          select: UserBasicSelect,
+        },
+      },
+    });
+
+    const message = await this.prisma.message.create({
+      data: {
+        type: 'notification',
+        notificationAction: 'removeMember',
+        notificationTarget: member.user.name,
+        senderId: removeUserId,
+        conversationId: conversationId,
+      },
+      select: MessageBasicSelect,
+    });
+
+    const users = await this.findConversationUser(conversationId);
+
+    for (const user of users) {
+      if (user.isOnline) {
+        this.messageGateway.server
+          .to(user.socketId)
+          .emit(SOCKET_EVENT.REMOVE_MEMBER, { member: member });
+        this.messageGateway.server
+          .to(user.socketId)
+          .emit(SOCKET_EVENT.NEW_MESSAGE, message);
+      }
+    }
+
+    await this.prisma.conversation.update({
+      where: {
+        id: conversationId,
+      },
+      data: {
+        groupNumberOfMember: {
+          decrement: 1,
+        },
+      },
+    });
+
+    return res.status(200).json({});
+  }
+
+  async promoteMember(memberId: string, req, res: Response) {
+    const member = await this.prisma.conversationMember.update({
+      where: {
+        id: memberId,
+      },
+      data: {
+        role: 'admin',
+      },
+      include: {
+        user: {
+          select: UserBasicSelect,
+        },
+        addedUser: {
+          select: UserBasicSelect,
+        },
+        nickNameChangedUser: {
+          select: UserBasicSelect,
+        },
+      },
+    });
+
+    const message = await this.prisma.message.create({
+      data: {
+        type: 'notification',
+        notificationAction: 'promoteMember',
+        notificationTarget: member.user.name,
+        senderId: req.user.id,
+        conversationId: member.conversationId,
+      },
+      select: MessageBasicSelect,
+    });
+
+    const users = await this.findConversationUser(member.conversationId);
+
+    for (const user of users) {
+      if (user.isOnline) {
+        this.messageGateway.server
+          .to(user.socketId)
+          .emit(SOCKET_EVENT.MEMBER_ADMIN_PROMOTE, { memberId: member.id });
+        this.messageGateway.server
+          .to(user.socketId)
+          .emit(SOCKET_EVENT.NEW_MESSAGE, message);
+      }
+    }
+  }
+
+  async downgradeMember(memberId: string, req, res: Response) {
+    const member = await this.prisma.conversationMember.update({
+      where: {
+        id: memberId,
+      },
+      data: {
+        role: 'member',
+      },
+      include: {
+        user: {
+          select: UserBasicSelect,
+        },
+        addedUser: {
+          select: UserBasicSelect,
+        },
+        nickNameChangedUser: {
+          select: UserBasicSelect,
+        },
+      },
+    });
+
+    const message = await this.prisma.message.create({
+      data: {
+        type: 'notification',
+        notificationAction: 'downgradeMember',
+        notificationTarget: member.user.name,
+        senderId: req.user.id,
+        conversationId: member.conversationId,
+      },
+      select: MessageBasicSelect,
+    });
+
+    const users = await this.findConversationUser(member.conversationId);
+
+    for (const user of users) {
+      if (user.isOnline) {
+        this.messageGateway.server
+          .to(user.socketId)
+          .emit(SOCKET_EVENT.MEMBER_ADMIN_DOWNGRADE, { memberId: member.id });
+        this.messageGateway.server
+          .to(user.socketId)
+          .emit(SOCKET_EVENT.NEW_MESSAGE, message);
+      }
+    }
+  }
+
+  async leftConversation(memberId: string, res: Response) {
+    const member = await this.prisma.conversationMember.findUnique({
+      where: {
+        id: memberId,
+      },
+      include: {
+        user: { select: UserBasicSelect },
+      },
+    });
+
+    await this.prisma.conversationMember.delete({
+      where: {
+        id: memberId,
+      },
+    });
+
+    const users = await this.findConversationUser(member.conversationId);
+
+    const message = await this.prisma.message.create({
+      data: {
+        type: 'notification',
+        notificationAction: 'leftGroup',
+        notificationTarget: member.user.name,
+        senderId: member.user.id,
+        conversationId: member.conversationId,
+      },
+      select: MessageBasicSelect,
+    });
+
+    for (const user of users) {
+      if (user.isOnline) {
+        if (user.id === member.user.id) {
+          this.messageGateway.server
+            .to(user.socketId)
+            .emit(SOCKET_EVENT.RELOAD_CONVERSATION_LIST);
+        }
+        this.messageGateway.server
+          .to(user.socketId)
+          .emit(SOCKET_EVENT.MEMBER_LEFT, {
+            memberId: member.id,
+          });
+        this.messageGateway.server
+          .to(user.socketId)
+          .emit(SOCKET_EVENT.NEW_MESSAGE, message);
+      }
+    }
+
+    const adminMembers = await this.prisma.conversationMember.findMany({
+      where: {
+        conversationId: member.conversationId,
+        role: 'admin',
+      },
+      include: {
+        user: {
+          select: UserBasicSelect,
+        },
+      },
+    });
+    
+    if (adminMembers.length == 0) {
+      const members = await this.prisma.conversationMember.findMany({
+        where: {
+          conversationId: member.conversationId,
+          id: {
+            not: member.id,
+          },
+        },
+        include: {
+          user: { select: UserBasicSelect },
+        },
+      });
+
+      if (members.length !== 0) {
+        const membersSort = members.sort((a, b) => {
+          if (a.joinedAt.getTime() > b.joinedAt.getTime()) return 1;
+          if (a.joinedAt.getTime() < b.joinedAt.getTime()) return -1;
+          return 0;
+        });
+
+        await this.prisma.conversationMember.update({
+          where: {
+            id: membersSort[0].id,
+          },
+          data: {
+            role: 'admin',
+          },
+        });
+
+        const message = await this.prisma.message.create({
+          data: {
+            type: 'notification',
+            notificationAction: 'promoteMember',
+            notificationTarget: membersSort[0].user.name,
+            senderId: member.user.id,
+            conversationId: member.conversationId,
+          },
+          select: MessageBasicSelect,
+        });
+
+        for (const user of users) {
+          if (user.isOnline) {
+            this.messageGateway.server
+              .to(user.socketId)
+              .emit(SOCKET_EVENT.MEMBER_ADMIN_PROMOTE, {
+                memberId: membersSort[0].id,
+              });
+            this.messageGateway.server
+              .to(user.socketId)
+              .emit(SOCKET_EVENT.NEW_MESSAGE, message);
+          }
+        }
+      }
+    }
+
+    return res.status(200).json({});
   }
 }
