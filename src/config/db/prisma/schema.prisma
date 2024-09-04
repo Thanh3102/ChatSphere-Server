@@ -17,6 +17,9 @@ model User {
   id           String   @id @default(auto()) @map("_id") @db.ObjectId
   name         String
   password     String
+  dateOfBirth  DateTime @db.Date
+  phoneNumber  String
+  gender       String
   email        String   @unique
   verifyEmail  Boolean  @default(false)
   image        String?

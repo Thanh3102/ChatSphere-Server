@@ -223,7 +223,7 @@ export class AuthService {
 
         const user = await p.user.findUnique({
           where: {
-            id: '668fa5b80b5bf66066b410f8',
+            id: userId,
           },
           select: {
             email: true,

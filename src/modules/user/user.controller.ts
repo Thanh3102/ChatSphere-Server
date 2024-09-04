@@ -15,6 +15,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Request, Response } from 'express';
 import { JwtGuard } from 'src/guards/jwt/jwt.guard';
+import { ChangePasswordDTO, UpdateUserDTO } from './user.dto';
 
 @Controller('api/user')
 export class UserController {
@@ -46,5 +47,22 @@ export class UserController {
     @Res() res: Response,
   ) {
     return this.userService.updateAvatar(req.user.id, avatarFile, res);
+  }
+
+  @UseGuards(JwtGuard)
+  @Post('/update')
+  async update(@Body() dto: UpdateUserDTO, @Res() res: Response) {
+    return this.userService.update(dto, res);
+  }
+
+  @UseGuards(JwtGuard)
+  @Post('/changePassword')
+  async changePassword(@Body() dto: ChangePasswordDTO, @Res() res: Response) {
+    return this.userService.changePassword(dto, res);
+  }
+
+  @Get('/checkEmailVerify')
+  checkEmailVerify(@Query('id') id: string, @Res() res: Response) {
+    return this.userService.checkEmailVerify(id, res);
   }
 }

@@ -3,7 +3,11 @@ import { Request, Response } from 'express';
 import * as bcrypt from 'bcrypt';
 import { v2 as cloudinary, UploadApiResponse } from 'cloudinary';
 import { PrismaService } from '../../config/db/prisma.service';
-import { CreateUserDTO, UpdateUserDTO } from '../..//shared/types';
+import {
+  ChangePasswordDTO,
+  CreateUserDTO,
+  UpdateUserDTO,
+} from '../..//shared/types';
 import { defaultErrorMessage } from '../..//shared/constants/constants';
 import {
   UserBasicSelect,
@@ -14,7 +18,7 @@ import {
 export class UserService {
   constructor(private prisma: PrismaService) {}
 
-  private async findById(userId: string, detail: boolean) {
+  private async findById(userId: string, detail?: boolean) {
     if (detail) {
       const user = await this.prisma.user.findUnique({
         where: {
@@ -160,13 +164,54 @@ export class UserService {
         password: await bcrypt.hash(credentials.password, 10),
         email: credentials.email,
         image: null,
+        dateOfBirth: credentials.dateOfBirth,
+        gender: credentials.gender,
+        phoneNumber: credentials.phoneNumber,
       },
     });
     return newUser;
   }
 
-  async update(dto: UpdateUserDTO) {
-    return null;
+  async update(dto: UpdateUserDTO, res: Response) {
+    await this.prisma.user.update({
+      where: {
+        id: dto.id,
+      },
+      data: {
+        name: dto.name,
+        gender: dto.gender,
+        phoneNumber: dto.phoneNumber,
+        dateOfBirth: dto.dateOfBirth,
+      },
+    });
+    return res.status(200).json({ message: 'Cập nhật thành công' });
+  }
+
+  async changePassword(dto: ChangePasswordDTO, res: Response) {
+    const { password } = await this.prisma.user.findUnique({
+      where: {
+        id: dto.id,
+      },
+      select: {
+        password: true,
+      },
+    });
+    const isCorrectPassword = await bcrypt.compare(dto.oldPassword, password);
+    if (isCorrectPassword) {
+      await this.prisma.user.update({
+        where: {
+          id: dto.id,
+        },
+        data: {
+          password: await bcrypt.hash(dto.newPassword, 10),
+        },
+      });
+      return res.status(200).json({ message: 'Cập nhật mật khẩu thành công' });
+    }
+
+    return res
+      .status(400)
+      .json({ message: 'Mật khẩu hiện tại không chính xác' });
   }
 
   async updateSocket(userId: string, socketId: string) {
@@ -210,5 +255,22 @@ export class UserService {
       select: UserBasicSelect,
     });
     return user;
+  }
+
+  async checkEmailVerify(id: string, res: Response) {
+    const user = await this.prisma.user.findUnique({
+      where: {
+        id: id,
+      },
+      select: {
+        verifyEmail: true,
+      },
+    });
+
+    if (user) {
+      return res.status(200).json(user.verifyEmail);
+    }
+
+    return res.status(407).json({ message: 'Id not exist' });
   }
 }

@@ -7,8 +7,12 @@ export const UserBasicSelect = {
 
 export const UserDetailSelect = {
   id: true,
+  name: true,
   email: true,
   image: true,
+  dateOfBirth: true,
+  phoneNumber: true,
+  gender: true,
   createAt: true,
   lastEditAt: true,
 };

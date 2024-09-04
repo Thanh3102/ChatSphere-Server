@@ -2,12 +2,23 @@ export type CreateUserDTO = {
   name: string;
   password: string;
   email: string;
+  dateOfBirth: Date;
+  phoneNumber: string;
+  gender: string;
 };
 
 export type UpdateUserDTO = {
+  id: string;
   name: string;
-  email: string;
-  image: File;
+  dateOfBirth: Date;
+  phoneNumber: string;
+  gender: string;
+};
+
+export type ChangePasswordDTO = {
+  id: string;
+  oldPassword: string;
+  newPassword: string;
 };
 
 export type SignInDTO = {
