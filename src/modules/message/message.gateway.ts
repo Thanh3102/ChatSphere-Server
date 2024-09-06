@@ -51,16 +51,10 @@ export class MessageGateway
 
   @SubscribeMessage('startCall')
   async handleStartCall(client: Socket, payload: SocketStartCallPayload) {
-    console.log(`
-      ------- Start Call -------
-      Conversation: ${payload.conversationId}
-      Type: ${payload.type}
-      HostUser: ${payload.userId}
-      --------------------------`);
-
     const room = await this.prisma.room.create({
       data: {
         type: payload.type,
+        isGroup: payload.isGroup,
         endedAt: null,
         conversationId: payload.conversationId,
         hostId: payload.userId,
@@ -115,11 +109,6 @@ export class MessageGateway
 
   @SubscribeMessage('joinRoom')
   async handleJoinRoom(client: Socket, payload: SocketJoinRoomPayload) {
-    /* 
-      Cần kiểm tra người dùng có trong conversation của room này không
-      Cần kiểm tra người này đã có trong room chưa
-    */
-
     const { user } = await this.prisma.roomParticipant.create({
       data: {
         socketId: client.id,
@@ -186,7 +175,6 @@ export class MessageGateway
 
   @SubscribeMessage('leftRoom')
   async handleLeftRoom(client: Socket) {
-    console.log(`User left room`, client.id);
     const exist = await this.prisma.roomParticipant.findUnique({
       where: {
         socketId: client.id,
@@ -223,8 +211,6 @@ export class MessageGateway
         },
       });
 
-      console.log('>>> Count', participants._count.id);
-
       if (participants._count.id === 0) {
         await this.prisma.room.delete({
           where: {
@@ -242,9 +228,7 @@ export class MessageGateway
 
   @SubscribeMessage('callEnded')
   handleEndCall(client: Socket, payload: SocketEndCallPayload) {
-    console.log(`
-      ----- End Call-----
-      `);
+
   }
 
   @SubscribeMessage('pinMessage')

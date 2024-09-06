@@ -159,6 +159,7 @@ model Message {
 model Room {
   id        String    @id @default(auto()) @map("_id") @db.ObjectId
   type      String
+  isGroup   Boolean
   isEnded   Boolean   @default(false)
   startedAt DateTime  @default(now())
   endedAt   DateTime?
