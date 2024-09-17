@@ -408,7 +408,7 @@ export class ConversationService {
 
       // Check if conversation exitst
       for (const conversation of conversations) {
-        const arrayA = conversation.members.map((member) => member.id).sort();
+        const arrayA = conversation.members.map((member) => member.userId).sort();
         const arrayB = [currentUserId, ...userIds].sort();
         if (arrayA.length === arrayB.length) {
           if (arrayA.every((userId, index) => userId === arrayB[index])) {
@@ -900,7 +900,7 @@ export class ConversationService {
         },
       },
     });
-    
+
     if (adminMembers.length == 0) {
       const members = await this.prisma.conversationMember.findMany({
         where: {

@@ -86,7 +86,7 @@ model Conversation {
   lastMessageId String?  @unique @db.ObjectId
   lastMessage   Message? @relation("lastMessage", references: [id], fields: [lastMessageId], onUpdate: Cascade, onDelete: SetNull)
 
-  memberIds String[]             @db.ObjectId
+  // memberIds String[]             @db.ObjectId
   members   ConversationMember[] @relation("ConversationMember_Conversation")
 
   room Room?
