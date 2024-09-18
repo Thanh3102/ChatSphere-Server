@@ -14,6 +14,6 @@ async function bootstrap() {
       enableDebugMessages: true,
     }),
   );
-  const server = await app.listen(3001);
+  const server = await app.listen(process.env.PORT);
 }
 bootstrap();
