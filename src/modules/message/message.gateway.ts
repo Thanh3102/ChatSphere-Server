@@ -23,9 +23,9 @@ import { forwardRef, Inject } from '@nestjs/common';
 import { SOCKET_EVENT } from 'src/shared/enums';
 import { ConversationService } from '../conversation/conversation.service';
 
-@WebSocketGateway(3002, {
+@WebSocketGateway(Number(process.env.WEBSOCKET_PORT), {
   cors: {
-    origin: 'http://localhost:3000',
+    origin: process.env.CLIENT_BASE_URL,
   },
 })
 export class MessageGateway
@@ -227,9 +227,7 @@ export class MessageGateway
   }
 
   @SubscribeMessage('callEnded')
-  handleEndCall(client: Socket, payload: SocketEndCallPayload) {
-
-  }
+  handleEndCall(client: Socket, payload: SocketEndCallPayload) {}
 
   @SubscribeMessage('pinMessage')
   async handlePinMessage(client: Socket, payload: { messageId: string }) {
