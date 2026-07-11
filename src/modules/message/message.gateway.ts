@@ -24,8 +24,9 @@ import { SOCKET_EVENT } from 'src/shared/enums';
 import { ConversationService } from '../conversation/conversation.service';
 
 @WebSocketGateway(Number(process.env.WEBSOCKET_PORT), {
+  transports: ['polling', 'websocket'],
   cors: {
-    origin: process.env.CLIENT_BASE_URL,
+    origin: '*',
   },
 })
 export class MessageGateway
